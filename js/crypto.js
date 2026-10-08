@@ -17,8 +17,8 @@ async function deriveKey(passwordKey, salt) {
     );
 }
 
-export async function encryptAndPackData(plainTextContent, password, existingSalt) {
-    const salt = existingSalt || crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
+export async function encryptAndPackData(plainTextContent, password) {
+    const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
     const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
     const pwdKey = await getPasswordKey(password);
     const aesKey = await deriveKey(pwdKey, salt);
@@ -50,7 +50,7 @@ export async function unpackAndDecryptData(packedBuffer, password) {
     try {
         const decryptedBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, cipherArray);
         const dec = new TextDecoder();
-        return { text: dec.decode(decryptedBuffer), salt };
+        return { text: dec.decode(decryptedBuffer) };
     } catch (e) {
         throw new Error("パスワードが違うか、ファイルが破損しています。");
     }

@@ -1,10 +1,9 @@
-import { encryptAndPackData, SALT_LENGTH, unpackAndDecryptData } from './crypto.js';
+import { encryptAndPackData, unpackAndDecryptData } from './crypto.js';
 import { checkPasswordStrength, createPreviewUpdater, createToast, isMobileViewport, setupScrollSync, syncMobileLayout, updatePasswordStrengthUI } from './ui.js';
 
 (function () {
     // === State Variables ===
     let currentPassword = null;
-    let currentSalt = null;         // Uint8Array(16)
     let pendingFileBuffer = null;   // 復号待ちのバッファ
     let hasSelectedFileForDecryption = false;
     let currentFileHandle = null;  // File System Access API 用のファイルハンドル
@@ -121,18 +120,16 @@ import { checkPasswordStrength, createPreviewUpdater, createToast, isMobileViewp
 
         const backupRevision = ++sessionBackupRevision;
         const password = currentPassword;
-        const salt = currentSalt;
         const documentId = currentDocumentId;
         const revision = editorRevision;
         const sessionPayload = {
             content: els.editor.value,
-            currentSalt: Array.from(currentSalt),
             documentId
         };
 
         try {
             const payloadText = JSON.stringify(sessionPayload);
-            const packed = await encryptAndPackData(payloadText, password, salt);
+            const packed = await encryptAndPackData(payloadText, password);
             const encoded = uint8ArrayToBase64(packed);
             if (backupRevision !== sessionBackupRevision || revision !== editorRevision ||
                 password !== currentPassword || documentId !== currentDocumentId) return;
@@ -167,9 +164,6 @@ import { checkPasswordStrength, createPreviewUpdater, createToast, isMobileViewp
             els.editor.value = parsed.content;
             updatePreview(parsed.content);
             setDirtyState(true);
-            if (Array.isArray(parsed.currentSalt) && parsed.currentSalt.length === SALT_LENGTH) {
-                currentSalt = new Uint8Array(parsed.currentSalt);
-            }
             if (restoreAsSeparateDocument) {
                 currentFileHandle = null;
                 pendingFileBuffer = null;
@@ -326,16 +320,14 @@ import { checkPasswordStrength, createPreviewUpdater, createToast, isMobileViewp
 
         try {
             const documentId = await getDocumentId(pendingFileBuffer);
-            const { text, salt } = await unpackAndDecryptData(pendingFileBuffer, pwd);
+            const { text } = await unpackAndDecryptData(pendingFileBuffer, pwd);
             currentPassword = pwd;
-            currentSalt = salt;
             currentDocumentId = documentId;
             els.editor.value = text;
             updatePreview(text);
             const restoreResult = await tryRestoreSessionBackup(pwd, documentId);
             if (restoreResult.cancelled) {
                 currentPassword = null;
-                currentSalt = null;
                 currentDocumentId = null;
                 els.editor.value = '';
                 updatePreview('');
@@ -369,7 +361,6 @@ import { checkPasswordStrength, createPreviewUpdater, createToast, isMobileViewp
         }
 
         currentPassword = pwd;
-        currentSalt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
         currentDocumentId = createDocumentId();
         currentFileHandle = null;
         els.editor.value = '';
@@ -377,7 +368,6 @@ import { checkPasswordStrength, createPreviewUpdater, createToast, isMobileViewp
         const restoreResult = await tryRestoreSessionBackup(pwd, currentDocumentId);
         if (restoreResult.cancelled) {
             currentPassword = null;
-            currentSalt = null;
             currentDocumentId = null;
             return;
         }
@@ -408,12 +398,11 @@ import { checkPasswordStrength, createPreviewUpdater, createToast, isMobileViewp
         if (!currentPassword) return;
         const content = els.editor.value;
         const password = currentPassword;
-        const salt = currentSalt;
         const revision = editorRevision;
         const activeRevision = activeDocumentRevision;
 
         try {
-            const packedBinary = await encryptAndPackData(content, password, salt);
+            const packedBinary = await encryptAndPackData(content, password);
             if (activeRevision !== activeDocumentRevision || currentPassword !== password) return;
 
             // A. Native API による直接書き込み（上書き、または新規名前を付けて保存）
@@ -502,7 +491,6 @@ import { checkPasswordStrength, createPreviewUpdater, createToast, isMobileViewp
         els.editor.value = '';
         updatePreview('');
         currentPassword = null;
-        currentSalt = null;
         pendingFileBuffer = null;
         pendingFileReadRevision++;
         currentFileHandle = null;
