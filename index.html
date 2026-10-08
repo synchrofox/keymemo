@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests">
+    <title>Secure KeyMemo - File System Access API Edition</title>
+
+    <link rel="stylesheet" href="vendor/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="css/tailwind.css">
+    <link rel="stylesheet" href="css/styles.css">
+
+    <script src="vendor/marked.umd.js"></script>
+    <script src="vendor/purify.min.js"></script>
+    <script src="vendor/prism.min.js"></script>
+    <script src="vendor/prism-components/prism-javascript.min.js"></script>
+    <script src="vendor/prism-components/prism-bash.min.js"></script>
+    <script src="vendor/prism-components/prism-python.min.js"></script>
+    <script src="vendor/prism-components/prism-css.min.js"></script>
+    <script src="vendor/prism-components/prism-json.min.js"></script>
+    <script src="vendor/prism-components/prism-typescript.min.js"></script>
+    <script src="vendor/prism-components/prism-yaml.min.js"></script>
+</head>
+
+<body class="bg-slate-50 text-gray-800 font-sans h-[100dvh] min-h-[100dvh] overflow-hidden flex flex-col relative">
+
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+
+    <div id="lock-screen"
+        class="absolute inset-0 z-40 bg-slate-100 flex items-center justify-center transition-opacity duration-300">
+        <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
+            <div class="text-center mb-6">
+                <svg class="w-12 h-12 mx-auto text-blue-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
+                    </path>
+                </svg>
+                <h1 class="text-2xl font-bold text-slate-800">Secure KeyMemo</h1>
+                <p class="text-sm text-slate-500 mt-1">完全ローカル・暗号化Markdownエディタ</p>
+                <span id="api-status-badge"
+                    class="inline-block mt-2 text-xs px-2 py-0.5 rounded-full font-medium">検出中...</span>
+            </div>
+
+            <div id="drop-zone"
+                class="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center cursor-pointer hover:bg-slate-50 transition-colors mb-6 group">
+                <input type="file" id="file-input" class="hidden" accept=".keymemo">
+                <svg class="w-8 h-8 mx-auto text-slate-400 group-hover:text-blue-500 mb-2" fill="none"
+                    stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+                    </path>
+                </svg>
+                <p id="drop-text" class="text-sm text-slate-600 font-medium">.keymemo ファイルをドロップ<br><span
+                        class="text-xs text-slate-400">またはクリックしてファイルを選択</span></p>
+            </div>
+
+            <div class="mb-6">
+                <label class="block text-sm font-semibold text-slate-700 mb-2">ファイル復号用パスワード</label>
+                <input type="password" id="master-password"
+                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    placeholder="••••••••">
+                <div class="mt-2 flex items-center gap-2">
+                    <div id="pwd-strength-bar" class="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div id="pwd-strength-fill"
+                            class="h-full w-0 bg-slate-400 rounded-full transition-all duration-300"></div>
+                    </div>
+                    <span id="pwd-strength-text" class="text-xs text-slate-400 font-medium"></span>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <button id="btn-unlock"
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors">ロック解除</button>
+                <button id="btn-create-new"
+                    class="flex-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">新規作成</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-screen" class="hidden flex-1 flex flex-col h-full">
+        <header id="app-header"
+            class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 shadow-sm z-10">
+            <div class="flex items-center space-x-4 min-w-0">
+                <h1 class="text-lg font-semibold tracking-tight text-gray-900 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
+                        </path>
+                    </svg>
+                    <span id="app-title-text">KeyMemo</span>
+                </h1>
+                <span id="dirty-badge"
+                    class="hidden text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">未保存</span>
+                <span id="status-indicator" class="text-sm text-gray-500 font-medium"></span>
+            </div>
+            <div id="header-actions" class="flex items-center space-x-2">
+                <button id="btn-save"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm whitespace-nowrap"
+                    title="Ctrl + S">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
+                        </path>
+                    </svg>
+                    <span id="txt-save-btn">保存</span>
+                </button>
+                <button id="btn-save-as"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors whitespace-nowrap">
+                    名前を付けて保存...
+                </button>
+                <button id="btn-scroll-sync"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors whitespace-nowrap border border-indigo-200"
+                    title="スクロール連動">
+                    <svg class="w-4 h-4 sync-icon-off" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                    </svg>
+                    <svg class="w-4 h-4 sync-icon-on hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                    </svg>
+                    <span id="txt-scroll-sync-btn">連動</span>
+                </button>
+                <button id="btn-mobile-toggle"
+                    class="hidden items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors whitespace-nowrap">
+                    プレビュー
+                </button>
+                <button id="btn-lock"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-100 rounded-md transition-colors whitespace-nowrap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1">
+                        </path>
+                    </svg>
+                    <span id="txt-lock-btn">ロック</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-1 flex flex-row w-full h-[calc(100dvh-3.5rem)]">
+            <div id="editor-pane" class="w-1/2 h-full border-r border-gray-200 bg-gray-50">
+                <textarea id="editor"
+                    class="w-full h-full p-6 bg-transparent outline-none resize-none font-mono text-sm leading-relaxed text-gray-800"
+                    placeholder="Markdownで機密メモを入力してください..."></textarea>
+            </div>
+            <div id="preview-pane" class="w-1/2 h-full bg-white overflow-y-auto p-6">
+                <div id="preview" class="prose prose-blue max-w-none prose-pre:bg-gray-100 prose-pre:text-gray-800">
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/app.js" defer></script>
+</body>
+
+</html>
