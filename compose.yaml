@@ -1,0 +1,16 @@
+services:
+  keymemo:
+    build: .
+    restart: unless-stopped
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.keymemo.rule=Host(`keymemo.${MY_DOMAIN}`)
+      - traefik.http.routers.keymemo.entrypoints=websecure
+      - traefik.http.routers.keymemo.tls.certresolver=letsencrypt
+      - traefik.http.services.keymemo.loadbalancer.server.port=8080
+
+networks:
+  proxy:
+    external: true
